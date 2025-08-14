@@ -35,7 +35,7 @@ def forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_day
             retention_day = t - prev_t
             dau += dnu_list[prev_t] * retention_func(retention_day)
         dau_forecast.append(dau)
-    return dau_forecast
+    return forecast_dau
 
 # 自定义CSS美化
 st.markdown("""
@@ -77,11 +77,17 @@ st.markdown("""
         border-radius: 10px;
         padding: 10px;
     }
-    .chart-title {
+    .output-area {
         background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin-left: 20px;
+    }
+    .chart-title {
+        background: #ecf0f1;
         padding: 10px;
         border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         text-align: center;
     }
     </style>
@@ -90,7 +96,7 @@ st.markdown("""
 st.title("📱 App用户活跃预测模型（美化焕新版）")
 
 # 两列布局：左边输入，右边大输出
-col1, col2 = st.columns([1, 4])
+col1, col2 = st.columns([1, 5])
 
 with col1:
     st.header("📊 输入参数")
@@ -121,22 +127,23 @@ with col1:
 
     st.button("添加留存点", on_click=add_retention_point, key="add_retention")
 
-    # 临时存储输入
-    for idx in range(len(st.session_state.temp_retention_points)):
-        point = st.session_state.temp_retention_points[idx]
-        col_a, col_b, col_c = st.columns([1, 1, 0.5])
-        with col_a:
-            new_day = st.number_input(f"留存点 {idx+1} - 天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}_{st.session_state.get('input_version', 0)}")
-        with col_b:
-            new_rate_percent = st.number_input(f"留存点 {idx+1} - 留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 0.5) * 100.0, key=f"rate_percent_{idx}_{st.session_state.get('input_version', 0)}")
-            new_rate = new_rate_percent / 100.0
-        with col_c:
-            if st.button("移除", key=f"remove_{idx}_{st.session_state.get('input_version', 0)}"):
-                st.session_state.temp_retention_points.pop(idx)
-                st.rerun()
+    # 临时存储输入，用container垂直排列
+    with st.container():
+        for idx in range(len(st.session_state.temp_retention_points)):
+            point = st.session_state.temp_retention_points[idx]
+            col_a, col_b, col_c = st.columns([1, 1, 0.5])
+            with col_a:
+                new_day = st.number_input(f"留存点 {idx+1} - 天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}_{st.session_state.get('input_version', 0)}")
+            with col_b:
+                new_rate_percent = st.number_input(f"留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 0.5) * 100.0, key=f"rate_percent_{idx}_{st.session_state.get('input_version', 0)}")
+                new_rate = new_rate_percent / 100.0
+            with col_c:
+                if st.button("移除", key=f"remove_{idx}_{st.session_state.get('input_version', 0)}"):
+                    st.session_state.temp_retention_points.pop(idx)
+                    st.rerun()
 
-        st.session_state.temp_retention_points[idx]['day'] = new_day
-        st.session_state.temp_retention_points[idx]['rate'] = new_rate
+            st.session_state.temp_retention_points[idx]['day'] = new_day
+            st.session_state.temp_retention_points[idx]['rate'] = new_rate
 
     # 保存按钮
     if st.button("保存留存点", key="save_retention"):
@@ -163,6 +170,7 @@ with col1:
 
 # 右边大输出区
 with col2:
+    st.markdown('<div class="output-area">', unsafe_allow_html=True)
     st.header("📈 预测结果与分析")
     if st.button("🔍 预测", key="forecast_button"):
         if not retention_days or not retention_rates:
@@ -182,7 +190,7 @@ with col2:
             
             st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '8px'}))
             st.subheader("DAU预测趋势")
-            fig, ax = plt.subplots(figsize=(14, 6))
+            fig, ax = plt.subplots(figsize=(16, 6))
             ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='#3498db', linewidth=2)
             ax.set_xlabel("天数")
             ax.set_ylabel("活跃用户数 (DAU)")
@@ -206,6 +214,7 @@ with col2:
             st.success(f"n={lt_n} 天的留存累加值 (包括D0=1): {lt_value:.4f}")
         else:
             st.warning("请先保存至少两个留存点并预测以拟合公式。")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with open("requirements.txt", "w") as f:
     f.write("streamlit\npandas\nnumpy\nmatplotlib")
