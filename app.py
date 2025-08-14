@@ -35,7 +35,7 @@ def forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_day
             retention_day = t - prev_t
             dau += dnu_list[prev_t] * retention_func(retention_day)
         dau_forecast.append(dau)
-    return forecast_dau
+    return dau_forecast
 
 # 自定义CSS美化
 st.markdown("""
@@ -79,14 +79,14 @@ st.markdown("""
     }
     .output-area {
         background: white;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        margin-left: 20px;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 6px 15px rgba(0,0,0,0.1);
+        margin-left: 30px;
     }
     .chart-title {
         background: #ecf0f1;
-        padding: 10px;
+        padding: 15px;
         border-radius: 10px;
         text-align: center;
     }
@@ -96,7 +96,7 @@ st.markdown("""
 st.title("📱 App用户活跃预测模型（美化焕新版）")
 
 # 两列布局：左边输入，右边大输出
-col1, col2 = st.columns([1, 5])
+col1, col2 = st.columns([0.7, 5.3])
 
 with col1:
     st.header("📊 输入参数")
@@ -133,7 +133,7 @@ with col1:
             point = st.session_state.temp_retention_points[idx]
             col_a, col_b, col_c = st.columns([1, 1, 0.5])
             with col_a:
-                new_day = st.number_input(f"留存点 {idx+1} - 天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}_{st.session_state.get('input_version', 0)}")
+                new_day = st.number_input(f"天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}_{st.session_state.get('input_version', 0)}")
             with col_b:
                 new_rate_percent = st.number_input(f"留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 0.5) * 100.0, key=f"rate_percent_{idx}_{st.session_state.get('input_version', 0)}")
                 new_rate = new_rate_percent / 100.0
@@ -188,13 +188,13 @@ with col2:
                 "活跃用户数 (DAU)": dau_forecast
             })
             
-            st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '8px'}))
+            st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '10px', 'width': '100%'}))
             st.subheader("DAU预测趋势")
-            fig, ax = plt.subplots(figsize=(16, 6))
+            fig, ax = plt.subplots(figsize=(20, 8))
             ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='#3498db', linewidth=2)
             ax.set_xlabel("天数")
             ax.set_ylabel("活跃用户数 (DAU)")
-            ax.set_title("未来DAU预测", pad=15)
+            ax.set_title("未来DAU预测", pad=20)
             ax.grid(True, linestyle='--', alpha=0.7)
             st.markdown('<div class="chart-title">DAU趋势图</div>', unsafe_allow_html=True)
             st.pyplot(fig)
