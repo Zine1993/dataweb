@@ -89,8 +89,8 @@ st.markdown("""
 
 st.title("📱 App用户活跃预测模型（美化焕新版）")
 
-# 三列布局：左边输入，中右输出
-col1, col2, col3 = st.columns([1.5, 2, 2])
+# 两列布局：左边输入，右边大输出
+col1, col2 = st.columns([1, 4])
 
 with col1:
     st.header("📊 输入参数")
@@ -161,9 +161,9 @@ with col1:
         retention_rates = [retention_rates[i] for i in sorted_indices]
         st.info("提示：留存点已按天数排序。")
 
-# 中右合并输出区
+# 右边大输出区
 with col2:
-    st.header("📈 预测结果")
+    st.header("📈 预测结果与分析")
     if st.button("🔍 预测", key="forecast_button"):
         if not retention_days or not retention_rates:
             st.error("请至少保存一个留存点以进行预测。")
@@ -182,7 +182,7 @@ with col2:
             
             st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '8px'}))
             st.subheader("DAU预测趋势")
-            fig, ax = plt.subplots(figsize=(12, 6))
+            fig, ax = plt.subplots(figsize=(14, 6))
             ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='#3498db', linewidth=2)
             ax.set_xlabel("天数")
             ax.set_ylabel("活跃用户数 (DAU)")
@@ -191,8 +191,6 @@ with col2:
             st.markdown('<div class="chart-title">DAU趋势图</div>', unsafe_allow_html=True)
             st.pyplot(fig)
 
-with col3:
-    st.header("📝 结论与分析")
     if 'a' in locals() and 'b' in locals() and a is not None and b is not None:
         st.write(f"拟合留存公式: retention = {a:.4f} * day ^ (-{b:.4f})")
         st.write(f"R² 值: {r_squared:.4f}")
