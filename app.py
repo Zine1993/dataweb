@@ -3,6 +3,40 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+# 定义函数（移到开头）
+def fit_retention_curve(days, rates):
+    if len(days) < 2:
+        return None, None, 0.0
+    log_days = np.log(days)
+    log_rates = np.log(rates)
+    b, log_a = np.polyfit(log_days, log_rates, 1)
+    a = np.exp(log_a)
+    b = -b
+    fitted_rates = a * np.power(days, -b)
+    ss_res = np.sum((rates - fitted_rates) ** 2)
+    ss_tot = np.sum((rates - np.mean(rates)) ** 2)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
+    return a, b, r_squared
+
+def get_retention_rate(day, a, b):
+    if a is None or b is None:
+        return 0.0
+    if day == 0:
+        return 1.0  # D0留存=1
+    return a * (day ** (-b)) if day > 0 else 0.0
+
+def forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days):
+    dau_forecast = [current_dau]
+    old_dau = current_dau
+    for t in range(forecast_days):
+        old_dau *= (1 - churn_rate)
+        dau = dnu_list[t] + old_dau
+        for prev_t in range(t):
+            retention_day = t - prev_t
+            dau += dnu_list[prev_t] * retention_func(retention_day)
+        dau_forecast.append(dau)
+    return dau_forecast
+
 # 自定义CSS美化
 st.markdown("""
     <style>
@@ -131,28 +165,31 @@ with col1:
 with col2:
     st.header("📈 预测结果")
     if st.button("🔍 预测", key="forecast_button"):
-        a, b, r_squared = fit_retention_curve(retention_days, retention_rates)
-        
-        def retention_func(day):
-            return get_retention_rate(day, a, b)
-        
-        dau_forecast = forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days)
-        
-        df_forecast = pd.DataFrame({
-            "天数": range(forecast_days + 1),
-            "活跃用户数 (DAU)": dau_forecast
-        })
-        
-        st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '8px'}))
-        st.subheader("DAU预测趋势")
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='#3498db', linewidth=2)
-        ax.set_xlabel("天数")
-        ax.set_ylabel("活跃用户数 (DAU)")
-        ax.set_title("未来DAU预测", pad=15)
-        ax.grid(True, linestyle='--', alpha=0.7)
-        st.markdown('<div class="chart-title">DAU趋势图</div>', unsafe_allow_html=True)
-        st.pyplot(fig)
+        if not retention_days or not retention_rates:
+            st.error("请至少保存一个留存点以进行预测。")
+        else:
+            a, b, r_squared = fit_retention_curve(retention_days, retention_rates)
+            
+            def retention_func(day):
+                return get_retention_rate(day, a, b)
+            
+            dau_forecast = forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days)
+            
+            df_forecast = pd.DataFrame({
+                "天数": range(forecast_days + 1),
+                "活跃用户数 (DAU)": dau_forecast
+            })
+            
+            st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '8px'}))
+            st.subheader("DAU预测趋势")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='#3498db', linewidth=2)
+            ax.set_xlabel("天数")
+            ax.set_ylabel("活跃用户数 (DAU)")
+            ax.set_title("未来DAU预测", pad=15)
+            ax.grid(True, linestyle='--', alpha=0.7)
+            st.markdown('<div class="chart-title">DAU趋势图</div>', unsafe_allow_html=True)
+            st.pyplot(fig)
 
 with col3:
     st.header("📝 结论与拟合结果")
@@ -172,22 +209,5 @@ with col3:
         else:
             st.warning("请先保存至少两个留存点并预测以拟合公式。")
 
-def fit_retention_curve(days, rates):
-    if len(days) < 2:
-        return None, None, 0.0
-    log_days = np.log(days)
-    log_rates = np.log(rates)
-    b, log_a = np.polyfit(log_days, log_rates, 1)
-    a = np.exp(log_a)
-    b = -b
-    fitted_rates = a * np.power(days, -b)
-    ss_res = np.sum((rates - fitted_rates) ** 2)
-    ss_tot = np.sum((rates - np.mean(rates)) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
-    return a, b, r_squared
-
-def get_retention_rate(day, a, b):
-    if a is None or b is None:
-        return 0.0
-    if day == 0:
-        return 1.0  # D0
+with open("requirements.txt", "w") as f:
+    f.write("streamlit\npandas\nnumpy\nmatplotlib")
