@@ -48,7 +48,7 @@ st.markdown("""
         color: white;
         border-radius: 10px;
         border: none;
-        padding: 10px 20px;
+        padding: 8px 16px;
         transition: all 0.3s;
     }
     .stButton > button:hover {
@@ -56,15 +56,16 @@ st.markdown("""
         transform: scale(1.05);
     }
     .stNumberInput > div > input {
-        border-radius: 10px;
+        border-radius: 8px;
         border: 2px solid #bdc3c7;
-        padding: 10px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        padding: 6px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         transition: all 0.3s;
+        min-width: 100px; /* 确保输入框有最小宽度 */
     }
     .stNumberInput > div > input:hover {
         border-color: #3498db;
-        box-shadow: 0 6px 12px rgba(52,152,219,0.2);
+        box-shadow: 0 4px 8px rgba(52,152,219,0.2);
     }
     h1, h2, h3 {
         color: #2c3e50;
@@ -79,14 +80,14 @@ st.markdown("""
     }
     .output-area {
         background: white;
-        padding: 30px;
-        border-radius: 15px;
-        box-shadow: 0 6px 15px rgba(0,0,0,0.1);
-        margin-left: 30px;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin-left: 20px;
     }
     .chart-title {
         background: #ecf0f1;
-        padding: 15px;
+        padding: 10px;
         border-radius: 10px;
         text-align: center;
     }
@@ -96,7 +97,7 @@ st.markdown("""
 st.title("📱 App用户活跃预测模型（美化焕新版）")
 
 # 两列布局：左边输入，右边大输出
-col1, col2 = st.columns([0.7, 5.3])
+col1, col2 = st.columns([1.2, 4.8])
 
 with col1:
     st.header("📊 输入参数")
@@ -127,7 +128,7 @@ with col1:
 
     st.button("添加留存点", on_click=add_retention_point, key="add_retention")
 
-    # 临时存储输入，用container垂直排列
+    # 临时存储输入，用container控制高度
     with st.container():
         for idx in range(len(st.session_state.temp_retention_points)):
             point = st.session_state.temp_retention_points[idx]
