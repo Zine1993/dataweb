@@ -7,40 +7,58 @@ import matplotlib.pyplot as plt
 st.markdown("""
     <style>
     .stApp {
-        background-color: #f0f4f8;
+        background: linear-gradient(to bottom, #f0f4f8, #e0e8f0);
     }
     .stButton > button {
-        background-color: #4CAF50;
+        background: linear-gradient(to right, #3498db, #2980b9);
         color: white;
-        border-radius: 5px;
+        border-radius: 10px;
         border: none;
-        padding: 8px 16px;
+        padding: 10px 20px;
+        transition: all 0.3s;
     }
     .stButton > button:hover {
-        background-color: #45a049;
+        background: linear-gradient(to right, #2980b9, #3498db);
+        transform: scale(1.05);
     }
     .stNumberInput > div > input {
-        border-radius: 5px;
-        border: 1px solid #ccc;
-        padding: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 10px;
+        border: 2px solid #bdc3c7;
+        padding: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        transition: all 0.3s;
+    }
+    .stNumberInput > div > input:hover {
+        border-color: #3498db;
+        box-shadow: 0 6px 12px rgba(52,152,219,0.2);
     }
     h1, h2, h3 {
         color: #2c3e50;
+        font-weight: bold;
     }
     .stInfo {
         background-color: #d9edf7;
-        border-color: #bce8f1;
+        border: 1px solid #bce8f1;
         color: #31708f;
-        border-radius: 5px;
+        border-radius: 10px;
+        padding: 10px;
+    }
+    .chart-title {
+        background: white;
+        padding: 10px;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        text-align: center;
     }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📱 App用户活跃预测模型（美化超稳版）")
+st.title("📱 App用户活跃预测模型（美化焕新版）")
 
-# 侧边栏输入参数
-with st.sidebar:
+# 三列布局：左边输入，中右结果和图表
+col1, col2, col3 = st.columns([1.5, 2, 2])
+
+with col1:
     st.header("📊 输入参数")
     current_dau = st.number_input("当前活跃用户数 (DAU)", min_value=0, value=10000, key="current_dau")
     forecast_days = st.number_input("预测天数", min_value=1, max_value=365, value=30, key="forecast_days")
@@ -57,11 +75,7 @@ with st.sidebar:
             dnu = st.number_input(f"第 {i+1} 天新增用户数", min_value=0, value=500, key=f"dnu_{i}")
             dnu_list.append(dnu)
 
-# 主界面三列
-col1, col2, col3 = st.columns([1.5, 2, 1.5])
-
-with col1:
-    st.header("🔄 留存率输入（可间断）")
+    st.subheader("🔄 留存率输入（可间断）")
     # 初始化 session_state
     if 'retention_points' not in st.session_state:
         st.session_state.retention_points = []
@@ -113,8 +127,50 @@ with col1:
         retention_rates = [retention_rates[i] for i in sorted_indices]
         st.info("提示：留存点已按天数排序。")
 
+# 中间和右边合并显示结果和图表
+with col2:
+    st.header("📈 预测结果")
+    if st.button("🔍 预测", key="forecast_button"):
+        a, b, r_squared = fit_retention_curve(retention_days, retention_rates)
+        
+        def retention_func(day):
+            return get_retention_rate(day, a, b)
+        
+        dau_forecast = forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days)
+        
+        df_forecast = pd.DataFrame({
+            "天数": range(forecast_days + 1),
+            "活跃用户数 (DAU)": dau_forecast
+        })
+        
+        st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '8px'}))
+        st.subheader("DAU预测趋势")
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='#3498db', linewidth=2)
+        ax.set_xlabel("天数")
+        ax.set_ylabel("活跃用户数 (DAU)")
+        ax.set_title("未来DAU预测", pad=15)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        st.markdown('<div class="chart-title">DAU趋势图</div>', unsafe_allow_html=True)
+        st.pyplot(fig)
+
 with col3:
     st.header("📝 结论与拟合结果")
+    if 'a' in locals() and 'b' in locals() and a is not None and b is not None:
+        st.write(f"拟合留存公式: retention = {a:.4f} * day ^ (-{b:.4f})")
+        st.write(f"R² 值: {r_squared:.4f}")
+    else:
+        st.write("至少需要两个留存点进行拟合。")
+
+    st.subheader("🧮 计算LT值（留存累加，包括D0=1）")
+    lt_n = st.number_input("输入n天", min_value=1, value=30, key="lt_n")
+    if st.button("计算LT", key="calc_lt"):
+        a, b, _ = fit_retention_curve(retention_days, retention_rates)
+        if a is not None and b is not None:
+            lt_value = sum(get_retention_rate(day, a, b) for day in range(0, lt_n + 1))
+            st.success(f"n={lt_n} 天的留存累加值 (包括D0=1): {lt_value:.4f}")
+        else:
+            st.warning("请先保存至少两个留存点并预测以拟合公式。")
 
 def fit_retention_curve(days, rates):
     if len(days) < 2:
@@ -134,65 +190,4 @@ def get_retention_rate(day, a, b):
     if a is None or b is None:
         return 0.0
     if day == 0:
-        return 1.0  # 加D0留存=1
-    return a * (day ** (-b)) if day > 0 else 0.0
-
-def forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days):
-    dau_forecast = [current_dau]
-    old_dau = current_dau
-    for t in range(forecast_days):
-        old_dau *= (1 - churn_rate)
-        dau = dnu_list[t] + old_dau
-        for prev_t in range(t):
-            retention_day = t - prev_t
-            dau += dnu_list[prev_t] * retention_func(retention_day)
-        dau_forecast.append(dau)
-    return dau_forecast
-
-# 预测按钮
-if st.button("🔍 预测", key="forecast_button"):
-    a, b, r_squared = fit_retention_curve(retention_days, retention_rates)
-    
-    def retention_func(day):
-        return get_retention_rate(day, a, b)
-    
-    dau_forecast = forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days)
-    
-    df_forecast = pd.DataFrame({
-        "天数": range(forecast_days + 1),
-        "活跃用户数 (DAU)": dau_forecast
-    })
-    
-    with col2:
-        st.header("📈 预测结果")
-        st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}))
-        st.subheader("DAU预测趋势")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='b', linewidth=2)
-        ax.set_xlabel("天数")
-        ax.set_ylabel("活跃用户数 (DAU)")
-        ax.set_title("未来DAU预测")
-        ax.grid(True, linestyle='--', alpha=0.7)
-        st.pyplot(fig)
-    
-    with col3:
-        if a is not None and b is not None:
-            st.write(f"拟合留存公式: retention = {a:.4f} * day ^ (-{b:.4f})")
-            st.write(f"R² 值: {r_squared:.4f}")
-        else:
-            st.write("至少需要两个留存点进行拟合。")
-
-# 新功能：计算LT（留存累加，包括D0=1）
-with col3:
-    st.subheader("🧮 计算LT值（留存累加，包括D0=1）")
-    lt_n = st.number_input("输入n天", min_value=1, value=30, key="lt_n")
-    if st.button("计算LT", key="calc_lt"):
-        a, b, _ = fit_retention_curve(retention_days, retention_rates)
-        if a is not None and b is not None:
-            lt_value = sum(get_retention_rate(day, a, b) for day in range(0, lt_n + 1))
-            st.success(f"n={lt_n} 天的留存累加值 (包括D0=1): {lt_value:.4f}")
-        else:
-            st.warning("请先保存至少两个留存点并预测以拟合公式。")
-
-with open("requirements.txt", "w") as f:
-    f.write("streamlit\npandas\nnumpy\nmatplotlib")
+        return 1.0  # D0
