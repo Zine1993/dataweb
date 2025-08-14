@@ -133,6 +133,8 @@ def fit_retention_curve(days, rates):
 def get_retention_rate(day, a, b):
     if a is None or b is None:
         return 0.0
+    if day == 0:
+        return 1.0  # 加D0留存=1
     return a * (day ** (-b)) if day > 0 else 0.0
 
 def forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days):
@@ -180,15 +182,15 @@ if st.button("🔍 预测", key="forecast_button"):
         else:
             st.write("至少需要两个留存点进行拟合。")
 
-# 新功能：计算LT（留存累加）
+# 新功能：计算LT（留存累加，包括D0=1）
 with col3:
-    st.subheader("🧮 计算LT值（留存累加）")
+    st.subheader("🧮 计算LT值（留存累加，包括D0=1）")
     lt_n = st.number_input("输入n天", min_value=1, value=30, key="lt_n")
     if st.button("计算LT", key="calc_lt"):
         a, b, _ = fit_retention_curve(retention_days, retention_rates)
         if a is not None and b is not None:
-            lt_value = sum(get_retention_rate(day, a, b) for day in range(1, lt_n + 1))
-            st.success(f"n={lt_n} 天的留存累加值: {lt_value:.4f}")
+            lt_value = sum(get_retention_rate(day, a, b) for day in range(0, lt_n + 1))
+            st.success(f"n={lt_n} 天的留存累加值 (包括D0=1): {lt_value:.4f}")
         else:
             st.warning("请先保存至少两个留存点并预测以拟合公式。")
 
