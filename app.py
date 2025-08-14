@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.title("App用户活跃预测模型（稳如老狗版）")
+st.title("App用户活跃预测模型（超稳版）")
 
 # 三列布局：输入、图表、结论
 col1, col2, col3 = st.columns([1, 2, 1])
@@ -33,7 +33,7 @@ with col1:
         st.session_state.temp_retention_points = []
 
     def add_retention_point():
-        st.session_state.temp_retention_points.append({'day': 1, 'rate': 50.0})
+        st.session_state.temp_retention_points.append({'day': 1, 'rate': 50.0 / 100.0})  # 确保rate是小数
 
     st.button("添加留存点", on_click=add_retention_point, key="add_retention")
 
@@ -44,7 +44,8 @@ with col1:
         with col_a:
             new_day = st.number_input(f"留存点 {idx+1} - 天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}_{st.session_state.get('input_version', 0)}")
         with col_b:
-            new_rate = st.number_input(f"留存点 {idx+1} - 留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 50.0), key=f"rate_{idx}_{st.session_state.get('input_version', 0)}") / 100.0
+            new_rate_percent = st.number_input(f"留存点 {idx+1} - 留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 50.0) * 100.0, key=f"rate_percent_{idx}_{st.session_state.get('input_version', 0)}")
+            new_rate = new_rate_percent / 100.0  # 转换为小数
         with col_c:
             if st.button("移除", key=f"remove_{idx}_{st.session_state.get('input_version', 0)}"):
                 st.session_state.temp_retention_points.pop(idx)
@@ -56,8 +57,8 @@ with col1:
 
     # 确认按钮，保存临时数据到正式状态
     if st.button("保存留存点", key="save_retention"):
-        st.session_state.retention_points = st.session_state.temp_retention_points.copy()
-        st.session_state.input_version = st.session_state.get('input_version', 0) + 1  # 更新版本，刷新控件键
+        st.session_state.retention_points = [dict(p) for p in st.session_state.temp_retention_points]  # 深拷贝
+        st.session_state.input_version = st.session_state.get('input_version', 0) + 1
         st.rerun()
 
     # 显示当前保存的留存点（调试用）
