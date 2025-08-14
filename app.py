@@ -3,9 +3,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.title("App用户活跃预测模型（更新版）")
+st.title("App用户活跃预测模型（稳如老狗版）")
 
-# 左右中三列布局：输入、图表、结论
+# 三列布局：输入、图表、结论
 col1, col2, col3 = st.columns([1, 2, 1])
 
 with col1:
@@ -29,36 +29,46 @@ with col1:
     # 初始化 session_state
     if 'retention_points' not in st.session_state:
         st.session_state.retention_points = []
+    if 'temp_retention_points' not in st.session_state:
+        st.session_state.temp_retention_points = []
 
     def add_retention_point():
-        st.session_state.retention_points.append({'day': 1, 'rate': 50.0})
+        st.session_state.temp_retention_points.append({'day': 1, 'rate': 50.0})
 
     st.button("添加留存点", on_click=add_retention_point, key="add_retention")
 
-    # 显示和编辑留存点
-    retention_days = []
-    retention_rates = []
-    for idx in range(len(st.session_state.retention_points)):
-        point = st.session_state.retention_points[idx]
+    # 临时存储输入，等待用户确认
+    for idx in range(len(st.session_state.temp_retention_points)):
+        point = st.session_state.temp_retention_points[idx]
         col_a, col_b, col_c = st.columns([1, 1, 0.5])
         with col_a:
-            new_day = st.number_input(f"留存点 {idx+1} - 天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}")
+            new_day = st.number_input(f"留存点 {idx+1} - 天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}_{st.session_state.get('input_version', 0)}")
         with col_b:
-            new_rate = st.number_input(f"留存点 {idx+1} - 留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 50.0), key=f"rate_{idx}") / 100.0
+            new_rate = st.number_input(f"留存点 {idx+1} - 留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 50.0), key=f"rate_{idx}_{st.session_state.get('input_version', 0)}") / 100.0
         with col_c:
-            if st.button("移除", key=f"remove_{idx}"):
-                st.session_state.retention_points.pop(idx)
+            if st.button("移除", key=f"remove_{idx}_{st.session_state.get('input_version', 0)}"):
+                st.session_state.temp_retention_points.pop(idx)
                 st.rerun()
 
-        # 实时更新 session_state
-        st.session_state.retention_points[idx]['day'] = new_day
-        st.session_state.retention_points[idx]['rate'] = new_rate
-        retention_days.append(new_day)
-        retention_rates.append(new_rate)
+        # 更新临时存储
+        st.session_state.temp_retention_points[idx]['day'] = new_day
+        st.session_state.temp_retention_points[idx]['rate'] = new_rate
 
-    # 显示当前留存点数据（调试用）
-    st.write("当前留存点数据：")
+    # 确认按钮，保存临时数据到正式状态
+    if st.button("保存留存点", key="save_retention"):
+        st.session_state.retention_points = st.session_state.temp_retention_points.copy()
+        st.session_state.input_version = st.session_state.get('input_version', 0) + 1  # 更新版本，刷新控件键
+        st.rerun()
+
+    # 显示当前保存的留存点（调试用）
+    st.write("已保存的留存点：")
     st.write(st.session_state.retention_points)
+    st.write("当前输入（未保存）：")
+    st.write(st.session_state.temp_retention_points)
+
+    # 使用已保存的留存点进行计算
+    retention_days = [point['day'] for point in st.session_state.retention_points]
+    retention_rates = [point['rate'] for point in st.session_state.retention_points]
 
     # 按天数排序并提示
     if retention_days:
@@ -78,8 +88,7 @@ def fit_retention_curve(days, rates):
     log_rates = np.log(rates)
     b, log_a = np.polyfit(log_days, log_rates, 1)
     a = np.exp(log_a)
-    b = -b  # 转换为正值
-    # 计算拟合值和 R²
+    b = -b
     fitted_rates = a * np.power(days, -b)
     ss_res = np.sum((rates - fitted_rates) ** 2)
     ss_tot = np.sum((rates - np.mean(rates)) ** 2)
@@ -95,11 +104,11 @@ def forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_day
     dau_forecast = [current_dau]
     old_dau = current_dau
     for t in range(forecast_days):
-        old_dau *= (1 - churn_rate)  # 老用户流失
-        dau = dnu_list[t] + old_dau  # 新增 + 老用户
+        old_dau *= (1 - churn_rate)
+        dau = dnu_list[t] + old_dau
         for prev_t in range(t):
             retention_day = t - prev_t
-            dau += dnu_list[prev_t] * retention_func(retention_day)  # 前期 cohort 贡献
+            dau += dnu_list[prev_t] * retention_func(retention_day)
         dau_forecast.append(dau)
     return dau_forecast
 
