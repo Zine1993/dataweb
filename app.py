@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# 定义函数（移到开头）
+# 定义函数
 def fit_retention_curve(days, rates):
     if len(days) < 2:
         return None, None, 0.0
@@ -89,7 +89,7 @@ st.markdown("""
 
 st.title("📱 App用户活跃预测模型（美化焕新版）")
 
-# 三列布局：左边输入，中右结果和图表
+# 三列布局：左边输入，中右输出
 col1, col2, col3 = st.columns([1.5, 2, 2])
 
 with col1:
@@ -161,7 +161,7 @@ with col1:
         retention_rates = [retention_rates[i] for i in sorted_indices]
         st.info("提示：留存点已按天数排序。")
 
-# 中间和右边合并显示结果和图表
+# 中右合并输出区
 with col2:
     st.header("📈 预测结果")
     if st.button("🔍 预测", key="forecast_button"):
@@ -192,7 +192,7 @@ with col2:
             st.pyplot(fig)
 
 with col3:
-    st.header("📝 结论与拟合结果")
+    st.header("📝 结论与分析")
     if 'a' in locals() and 'b' in locals() and a is not None and b is not None:
         st.write(f"拟合留存公式: retention = {a:.4f} * day ^ (-{b:.4f})")
         st.write(f"R² 值: {r_squared:.4f}")
