@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+import matplotlib
 
 # --- 核心算法部分 ---
 
@@ -15,13 +16,12 @@ def fit_retention_curve(days, rates):
     if len(days) < 2:
         return None, None, 0.0
     
-    # 转换为 numpy 数组确保计算性能
     days_arr = np.array(days)
     rates_arr = np.array(rates)
     
     try:
         # p0: 初始猜测值 [a=0.5, b=0.5]
-        # bounds: 限制 a 在 [0, 1] 之间（留存率上限100%），b > 0（衰减方向）
+        # bounds: 限制 a 在 [0, 1] 之间，b > 0
         popt, pcov = curve_fit(power_law, days_arr, rates_arr, p0=[0.5, 0.5], bounds=(0, [1.0, np.inf]))
         a, b = popt
         
@@ -33,7 +33,7 @@ def fit_retention_curve(days, rates):
         
         return a, b, r_squared
     except Exception as e:
-        st.error(f"非线性拟合失败，请检查输入数据是否合理: {e}")
+        st.error(f"非线性拟合失败: {e}")
         return None, None, 0.0
 
 def get_retention_rate(day, a, b):
@@ -41,7 +41,7 @@ def get_retention_rate(day, a, b):
     if a is None or b is None:
         return 0.0
     if day == 0:
-        return 1.0  # 定义 D0 留存始终为 100%
+        return 1.0  # D0 留存始终为 100%
     return a * (day ** (-b)) if day > 0 else 0.0
 
 def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
@@ -50,15 +50,10 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
     old_dau = current_dau
     
     for t in range(1, forecast_days + 1):
-        # 1. 存量老用户自然流失
         old_dau *= (1 - churn_rate)
-        
-        # 2. 预测期间新增用户(DNU)在第 t 天的留存贡献
         new_user_contribution = 0
         for prev_t in range(t):
-            # 距离新增那一刻过去了多少天
             retention_day = t - (prev_t + 1)
-            # 获取对应的留存率并累加
             new_user_contribution += dnu_list[prev_t] * get_retention_rate(retention_day, a, b)
             
         current_day_dau = old_dau + new_user_contribution
@@ -70,14 +65,10 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
 
 st.set_page_config(page_title="App用户活跃预测-科学版", layout="wide")
 
-# 自定义CSS
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #3498db; color: white; }
-    .reportview-container .main .block-container { padding-top: 2rem; }
-    </style>
-""", unsafe_allow_html=True)
+# 配置 Matplotlib 中文字体
+# 尝试不同的常见中文字体名以提高兼容性
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'sans-serif']
+plt.rcParams['axes.unicode_minus'] = False 
 
 st.title("📱 App用户活跃预测模型（Scipy科学拟合版）")
 
@@ -111,24 +102,21 @@ with col1:
 with col2:
     st.header("📈 预测分析报告")
     
-    # 提取数据并拟合
     days_data = [r['day'] for r in st.session_state.rows]
     rates_data = [r['rate'] / 100.0 for r in st.session_state.rows]
     
     a, b, r_sq = fit_retention_curve(days_data, rates_data)
     
     if a is not None:
-        # 计算预测
         forecast_results = forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days)
         
-        # 布局展示
         m1, m2, m3 = st.columns(3)
         m1.metric("拟合系数 a (D1趋势)", f"{a:.4f}")
         m2.metric("衰减系数 b", f"{b:.4f}")
         m3.metric("拟合优度 R²", f"{r_sq:.4f}")
 
         # 图表展示
-        fig, ax = plt.subplots(figsize=(10, 4))
+                fig, ax = plt.subplots(figsize=(10, 4))
         ax.plot(range(len(forecast_results)), forecast_results, marker='o', linestyle='-', color='#3498db', label="预测DAU")
         ax.fill_between(range(len(forecast_results)), forecast_results, color='#3498db', alpha=0.1)
         ax.set_title(f"未来 {forecast_days} 天 DAU 预测走势")
@@ -137,22 +125,9 @@ with col2:
         ax.grid(axis='y', linestyle='--', alpha=0.7)
         st.pyplot(fig)
 
-        # LT 计算
         st.subheader("🧮 长期价值计算 (LTV/LT)")
         lt_n = st.number_input("计算前 N 天的留存累加值 (LT)", value=30)
         lt_val = sum(get_retention_rate(d, a, b) for d in range(lt_n + 1))
         st.success(f"前 {lt_n} 天的累计留存价值 (LT) 为: {lt_val:.2f} 天")
-        
-        # 数据详情
-        with st.expander("查看预测数据详情"):
-            df = pd.DataFrame({
-                "预测天数": range(len(forecast_results)),
-                "预计DAU": [int(x) for x in forecast_results]
-            })
-            st.dataframe(df.T)
     else:
         st.warning("请至少输入两个有效的留存点以开始科学拟合。")
-
-# 依赖声明文件生成
-with open("requirements.txt", "w") as f:
-    f.write("streamlit\npandas\nnumpy\nmatplotlib\nscipy")
