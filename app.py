@@ -49,7 +49,7 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
 # --- UI 界面部分 ---
 
 st.set_page_config(page_title="App全维度分析工具", layout="wide")
-st.title("📱 App用户活跃及留存拟合诊断模型")
+st.title("📱 App用户活跃及留存拟合（非线性最小二乘法）")
 
 # 初始化 Session State
 if 'rows' not in st.session_state:
