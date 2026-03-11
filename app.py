@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 # --- 核心算法部分 ---
 
@@ -56,18 +55,20 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
 
 # --- UI 界面部分 ---
 
-st.set_page_config(page_title="App全维度分析工具", layout="wide")
-st.title("📱 App用户活跃、LTV 与 ROAS 预测全景模型")
+st.set_page_config(page_title="App买量与ROAS分析工具", layout="wide")
+st.title("📱 App用户活跃及 ROAS 预测模型")
 
 if 'calculated' not in st.session_state:
     st.session_state.calculated = False
 
+# 货币符号映射表
 currency_map = {
     "无 (仅显示数字)": "",
     "CNY (￥)": "￥",
     "USD ($)": "$",
     "EUR (€)": "€",
     "JPY (¥)": "¥",
+    "GBP (£)": "£",
     "HKD (HK$)": "HK$"
 }
 
@@ -82,6 +83,7 @@ with col1:
         daily_dnu = st.number_input("每日平均新增 (DNU)", value=500)
 
     with st.expander("2. 买量与营收配置 (ROAS)", expanded=True):
+        # 新增：货币选择
         selected_currency_name = st.selectbox("货币单位设置", list(currency_map.keys()))
         curr_sym = currency_map[selected_currency_name]
         
@@ -110,79 +112,59 @@ with col1:
         st.session_state.calculated = True
 
 with col2:
-    st.header("📈 综合分析报告")
+    st.header("📈 ROAS 分析报告")
     
     if st.session_state.calculated:
         days_data = [r['day'] for r in st.session_state.rows]
         rates_data = [r['rate'] / 100.0 for r in st.session_state.rows]
+        
         a, b, r_sq = fit_retention_curve(days_data, rates_data)
         
         if a is not None:
-            # 1. 计算 DAU 走势
             dnu_list = [daily_dnu] * (forecast_days + 1)
-            dau_forecast = forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days)
+            forecast_results = forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days)
             
-            # 2. 计算 LTV 增长曲线数据
-            net_arpu = arpu * (1 - channel_share)
-            ltv_curve = []
-            cumulative_retention = 0
-            for d in range(forecast_days + 1):
-                cumulative_retention += get_retention_rate(d, a, b)
-                ltv_curve.append(cumulative_retention * net_arpu)
+            # --- 核心财务计算 ---
+            net_arpu = arpu * (1 - channel_share) 
+            lt_n = st.number_input("ROAS 观察周期 (天)", value=30)
+            lt_val = sum(get_retention_rate(d, a, b) for d in range(lt_n + 1))
+            net_ltv = lt_val * net_arpu 
+            roas = (net_ltv / cac) * 100 if cac > 0 else 0 
 
-            # 3. 核心财务指标卡片
-            lt_n = forecast_days
-            current_ltv = ltv_curve[-1]
-            roas = (current_ltv / cac) * 100 if cac > 0 else 0
-
+            # 指标展示 - 动态适配货币符号
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("结算后 ARPU", f"{curr_sym}{net_arpu:.2f}")
-            m2.metric(f"D{lt_n} 累计 LT", f"{cumulative_retention:.2f}天")
-            m3.metric(f"D{lt_n} 结算 LTV", f"{curr_sym}{current_ltv:.2f}")
+            m1.metric("结算后日均 ARPU", f"{curr_sym}{net_arpu:.2f}")
+            m2.metric(f"D{lt_n} 累计 LT", f"{lt_val:.2f} 天")
+            m3.metric(f"D{lt_n} 结算后 LTV", f"{curr_sym}{net_ltv:.2f}")
             m4.metric(f"D{lt_n} 买量 ROAS", f"{roas:.1f}%", 
                       delta=f"{roas-100:.1f}%" if roas>0 else None, 
                       delta_color="normal" if roas >= 100 else "inverse")
 
-            # 4. 创建双轴图表
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-            # 添加 DAU 面积图 (左轴)
+            # 走势图
+            fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=list(range(len(dau_forecast))), 
-                y=dau_forecast,
-                name='预测 DAU (左轴)',
-                line=dict(color='#3498db', width=2),
+                x=list(range(len(forecast_results))), 
+                y=forecast_results,
+                mode='lines+markers',
+                name='预测DAU',
+                line=dict(color='#3498db', width=3),
                 fill='tozeroy',
-                hovertemplate="天数: %{x}<br>DAU: %{y:,.0f}<extra></extra>"
-            ), secondary_y=False)
-
-            # 添加 LTV 增长曲线 (右轴)
-            fig.add_trace(go.Scatter(
-                x=list(range(len(ltv_curve))), 
-                y=ltv_curve,
-                name='累计 LTV (右轴)',
-                line=dict(color='#e67e22', width=4, dash='dot'),
-                hovertemplate="天数: %{x}<br>LTV: " + curr_sym + "%{y:.2f}<extra></extra>"
-            ), secondary_y=True)
-
-            # 更新布局
+                hovertemplate="预测天数: %{x}<br>活跃用户数: %{y:,.0f}<extra></extra>"
+            ))
             fig.update_layout(
-                title=f"未来 {forecast_days} 天 DAU 走势与 LTV 价值沉淀对比",
+                title=f"未来 {forecast_days} 天 DAU 预测走势",
                 xaxis_title="预测天数",
+                yaxis_title="活跃用户数 (DAU)",
                 hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                yaxis=dict(tickformat=",d") 
             )
-
-            # 设置左右轴标题和格式
-            fig.update_yaxes(title_text="活跃用户数 (DAU)", secondary_y=False, tickformat=",d")
-            fig.update_yaxes(title_text=f"累计 LTV ({selected_currency_name})", secondary_y=True, tickformat=".2f")
-
             st.plotly_chart(fig, use_container_width=True)
 
             if roas >= 100:
-                st.success(f"✅ 该配置下，第 {forecast_days} 天 ROAS 已达标回本。")
+                st.success(f"✅ 渠道表现盈利：在第 {lt_n} 天已实现回本。")
             else:
-                st.error(f"🚨 该配置下，第 {forecast_days} 天仍处于买量亏损状态。")
+                st.error(f"🚨 渠道表现亏损：在第 {lt_n} 天尚未回本。")
+
         else:
             st.error("拟合失败。")
     else:
