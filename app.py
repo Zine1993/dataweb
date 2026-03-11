@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- 核心算法部分 ---
 
@@ -55,11 +56,20 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
 
 # --- UI 界面部分 ---
 
-st.set_page_config(page_title="App买量 ROAS 预测", layout="wide")
-st.title("📱 App买量 ROAS 预测模型 (考虑渠道分成)")
+st.set_page_config(page_title="App全维度分析工具", layout="wide")
+st.title("📱 App用户活跃、LTV 与 ROAS 预测全景模型")
 
 if 'calculated' not in st.session_state:
     st.session_state.calculated = False
+
+currency_map = {
+    "无 (仅显示数字)": "",
+    "CNY (￥)": "￥",
+    "USD ($)": "$",
+    "EUR (€)": "€",
+    "JPY (¥)": "¥",
+    "HKD (HK$)": "HK$"
+}
 
 col1, col2 = st.columns([1, 3])
 
@@ -72,11 +82,13 @@ with col1:
         daily_dnu = st.number_input("每日平均新增 (DNU)", value=500)
 
     with st.expander("2. 买量与营收配置 (ROAS)", expanded=True):
-        arpu = st.number_input("原始 ARPU (活跃用户日均产出)", value=2.0)
-        # 优化点：手动输入渠道分成比例
-        channel_share_input = st.number_input("渠道分成比例 (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
+        selected_currency_name = st.selectbox("货币单位设置", list(currency_map.keys()))
+        curr_sym = currency_map[selected_currency_name]
+        
+        arpu = st.number_input(f"原始 ARPU ({curr_sym if curr_sym else '数值'})", value=2.0)
+        channel_share_input = st.number_input("渠道分成比例 (%)", min_value=0.0, max_value=100.0, value=30.0)
         channel_share = channel_share_input / 100.0
-        cac = st.number_input("买量单价 (CAC)", value=10.0)
+        cac = st.number_input(f"买量单价 CAC ({curr_sym if curr_sym else '数值'})", value=10.0)
     
     st.subheader("🔄 留存观测点")
     if 'rows' not in st.session_state:
@@ -98,72 +110,84 @@ with col1:
         st.session_state.calculated = True
 
 with col2:
-    st.header("📈 ROAS 分析报告")
+    st.header("📈 综合分析报告")
     
     if st.session_state.calculated:
         days_data = [r['day'] for r in st.session_state.rows]
         rates_data = [r['rate'] / 100.0 for r in st.session_state.rows]
-        
         a, b, r_sq = fit_retention_curve(days_data, rates_data)
         
         if a is not None:
-            # 基础预测
+            # 1. 计算 DAU 走势
             dnu_list = [daily_dnu] * (forecast_days + 1)
-            forecast_results = forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days)
+            dau_forecast = forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days)
             
-            # --- ROAS 核心计算 ---
-            # 结算后 ARPU = 原始 ARPU * (1 - 分成比例)
-            net_arpu = arpu * (1 - channel_share) 
-            lt_n = st.number_input("ROAS 观察周期 (天)", value=30, help="计算该周期内的累计净收入是否回本")
-            lt_val = sum(get_retention_rate(d, a, b) for d in range(lt_n + 1))
-            # 结算后 LTV = 累计留存天数 * 结算后 ARPU
-            net_ltv = lt_val * net_arpu 
-            # ROAS = 结算后 LTV / 买量成本
-            roas = (net_ltv / cac) * 100 if cac > 0 else 0 
+            # 2. 计算 LTV 增长曲线数据
+            net_arpu = arpu * (1 - channel_share)
+            ltv_curve = []
+            cumulative_retention = 0
+            for d in range(forecast_days + 1):
+                cumulative_retention += get_retention_rate(d, a, b)
+                ltv_curve.append(cumulative_retention * net_arpu)
 
-            # 指标展示
+            # 3. 核心财务指标卡片
+            lt_n = forecast_days
+            current_ltv = ltv_curve[-1]
+            roas = (current_ltv / cac) * 100 if cac > 0 else 0
+
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("结算后日均 ARPU", f"￥{net_arpu:.2f}")
-            m2.metric(f"D{lt_n} 累计 LT", f"{lt_val:.2f} 天")
-            m3.metric(f"D{lt_n} 结算后 LTV", f"￥{net_ltv:.2f}")
+            m1.metric("结算后 ARPU", f"{curr_sym}{net_arpu:.2f}")
+            m2.metric(f"D{lt_n} 累计 LT", f"{cumulative_retention:.2f}天")
+            m3.metric(f"D{lt_n} 结算 LTV", f"{curr_sym}{current_ltv:.2f}")
             m4.metric(f"D{lt_n} 买量 ROAS", f"{roas:.1f}%", 
                       delta=f"{roas-100:.1f}%" if roas>0 else None, 
                       delta_color="normal" if roas >= 100 else "inverse")
 
-            # 诊断意见
-            if roas >= 100:
-                st.success(f"🎊 渠道表现优秀：在第 {lt_n} 天已实现回本！当前 ROAS 为 {roas:.1f}%。")
-            else:
-                st.warning(f"🚨 渠道尚未回本：在第 {lt_n} 天 ROAS 为 {roas:.1f}%。距离回本还差 {100-roas:.1f}%。")
+            # 4. 创建双轴图表
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-            # Plotly 绘图
-            fig = go.Figure()
+            # 添加 DAU 面积图 (左轴)
             fig.add_trace(go.Scatter(
-                x=list(range(len(forecast_results))), 
-                y=forecast_results,
-                mode='lines+markers',
-                name='预测DAU',
-                line=dict(color='#3498db', width=3),
+                x=list(range(len(dau_forecast))), 
+                y=dau_forecast,
+                name='预测 DAU (左轴)',
+                line=dict(color='#3498db', width=2),
                 fill='tozeroy',
-                hovertemplate="预测天数: %{x}<br>活跃用户数: %{y:,.0f}<extra></extra>"
-            ))
+                hovertemplate="天数: %{x}<br>DAU: %{y:,.0f}<extra></extra>"
+            ), secondary_y=False)
+
+            # 添加 LTV 增长曲线 (右轴)
+            fig.add_trace(go.Scatter(
+                x=list(range(len(ltv_curve))), 
+                y=ltv_curve,
+                name='累计 LTV (右轴)',
+                line=dict(color='#e67e22', width=4, dash='dot'),
+                hovertemplate="天数: %{x}<br>LTV: " + curr_sym + "%{y:.2f}<extra></extra>"
+            ), secondary_y=True)
+
+            # 更新布局
             fig.update_layout(
-                title=f"未来 {forecast_days} 天 DAU 预测走势",
+                title=f"未来 {forecast_days} 天 DAU 走势与 LTV 价值沉淀对比",
                 xaxis_title="预测天数",
-                yaxis_title="活跃用户数 (DAU)",
                 hovermode="x unified",
-                yaxis=dict(tickformat=",d") 
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
+
+            # 设置左右轴标题和格式
+            fig.update_yaxes(title_text="活跃用户数 (DAU)", secondary_y=False, tickformat=",d")
+            fig.update_yaxes(title_text=f"累计 LTV ({selected_currency_name})", secondary_y=True, tickformat=".2f")
+
             st.plotly_chart(fig, use_container_width=True)
 
-            with st.expander("🔬 查看数学拟合详情"):
-                st.write(f"拟合幂函数公式: $Retention = {a:.4f} \cdot day^{{-{b:.4f}}}$")
-                st.write(f"拟合优度 $R^2$: {r_sq:.4f}")
+            if roas >= 100:
+                st.success(f"✅ 该配置下，第 {forecast_days} 天 ROAS 已达标回本。")
+            else:
+                st.error(f"🚨 该配置下，第 {forecast_days} 天仍处于买量亏损状态。")
         else:
-            st.error("拟合失败。请确保至少输入两个不同的留存观测点（如 D1 和 D7）。")
+            st.error("拟合失败。")
     else:
         st.info("👈 请在左侧配置参数后点击『开始执行预测』按钮。")
 
-# 依赖文件自动生成
+# 依赖文件
 with open("requirements.txt", "w") as f:
     f.write("streamlit\npandas\nnumpy\nscipy\nplotly")
