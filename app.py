@@ -55,8 +55,8 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
 
 # --- UI 界面部分 ---
 
-st.set_page_config(page_title="App活跃预测-标准版", layout="wide")
-st.title("📱 App用户活跃预测模型（科学版）")
+st.set_page_config(page_title="App活跃预测", layout="wide")
+st.title("📱 App用户活跃预测模型（非线性最小二乘法）")
 
 # 初始化 Session State
 if 'calculated' not in st.session_state:
