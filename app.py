@@ -2,220 +2,157 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
 
-# 定义函数
+# --- 核心算法部分 ---
+
+def power_law(x, a, b):
+    """定义幂函数模型: y = a * x^(-b)"""
+    return a * np.power(x, -b)
+
 def fit_retention_curve(days, rates):
+    """使用非线性最小二乘法进行拟合"""
     if len(days) < 2:
         return None, None, 0.0
-    log_days = np.log(days)
-    log_rates = np.log(rates)
-    b, log_a = np.polyfit(log_days, log_rates, 1)
-    a = np.exp(log_a)
-    b = -b
-    fitted_rates = a * np.power(days, -b)
-    ss_res = np.sum((rates - fitted_rates) ** 2)
-    ss_tot = np.sum((rates - np.mean(rates)) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
-    return a, b, r_squared
+    
+    # 转换为 numpy 数组确保计算性能
+    days_arr = np.array(days)
+    rates_arr = np.array(rates)
+    
+    try:
+        # p0: 初始猜测值 [a=0.5, b=0.5]
+        # bounds: 限制 a 在 [0, 1] 之间（留存率上限100%），b > 0（衰减方向）
+        popt, pcov = curve_fit(power_law, days_arr, rates_arr, p0=[0.5, 0.5], bounds=(0, [1.0, np.inf]))
+        a, b = popt
+        
+        # 计算拟合优度 R²
+        fitted_rates = power_law(days_arr, a, b)
+        ss_res = np.sum((rates_arr - fitted_rates) ** 2)
+        ss_tot = np.sum((rates_arr - np.mean(rates_arr)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
+        
+        return a, b, r_squared
+    except Exception as e:
+        st.error(f"非线性拟合失败，请检查输入数据是否合理: {e}")
+        return None, None, 0.0
 
 def get_retention_rate(day, a, b):
+    """根据拟合参数获取特定天数的留存率"""
     if a is None or b is None:
         return 0.0
     if day == 0:
-        return 1.0  # D0留存=1
+        return 1.0  # 定义 D0 留存始终为 100%
     return a * (day ** (-b)) if day > 0 else 0.0
 
-def forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days):
+def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
+    """DAU 预测核心逻辑"""
     dau_forecast = [current_dau]
     old_dau = current_dau
-    for t in range(forecast_days):
+    
+    for t in range(1, forecast_days + 1):
+        # 1. 存量老用户自然流失
         old_dau *= (1 - churn_rate)
-        dau = dnu_list[t] + old_dau
+        
+        # 2. 预测期间新增用户(DNU)在第 t 天的留存贡献
+        new_user_contribution = 0
         for prev_t in range(t):
-            retention_day = t - prev_t
-            dau += dnu_list[prev_t] * retention_func(retention_day)
-        dau_forecast.append(dau)
+            # 距离新增那一刻过去了多少天
+            retention_day = t - (prev_t + 1)
+            # 获取对应的留存率并累加
+            new_user_contribution += dnu_list[prev_t] * get_retention_rate(retention_day, a, b)
+            
+        current_day_dau = old_dau + new_user_contribution
+        dau_forecast.append(current_day_dau)
+        
     return dau_forecast
 
-# 自定义CSS美化
+# --- UI 界面部分 ---
+
+st.set_page_config(page_title="App用户活跃预测-科学版", layout="wide")
+
+# 自定义CSS
 st.markdown("""
     <style>
-    .stApp {
-        background: linear-gradient(to bottom, #f0f4f8, #e0e8f0);
-    }
-    .stButton > button {
-        background: linear-gradient(to right, #3498db, #2980b9);
-        color: white;
-        border-radius: 10px;
-        border: none;
-        padding: 8px 16px;
-        transition: all 0.3s;
-    }
-    .stButton > button:hover {
-        background: linear-gradient(to right, #2980b9, #3498db);
-        transform: scale(1.05);
-    }
-    .stNumberInput > div > input {
-        border-radius: 8px;
-        border: 2px solid #bdc3c7;
-        padding: 6px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        transition: all 0.3s;
-        min-width: 100px; /* 确保输入框有最小宽度 */
-    }
-    .stNumberInput > div > input:hover {
-        border-color: #3498db;
-        box-shadow: 0 4px 8px rgba(52,152,219,0.2);
-    }
-    h1, h2, h3 {
-        color: #2c3e50;
-        font-weight: bold;
-    }
-    .stInfo {
-        background-color: #d9edf7;
-        border: 1px solid #bce8f1;
-        color: #31708f;
-        border-radius: 10px;
-        padding: 10px;
-    }
-    .output-area {
-        background: white;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        margin-left: 20px;
-    }
-    .chart-title {
-        background: #ecf0f1;
-        padding: 10px;
-        border-radius: 10px;
-        text-align: center;
-    }
+    .main { background-color: #f8f9fa; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #3498db; color: white; }
+    .reportview-container .main .block-container { padding-top: 2rem; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📱 App用户活跃预测模型（美化焕新版）")
+st.title("📱 App用户活跃预测模型（Scipy科学拟合版）")
 
-# 两列布局：左边输入，右边大输出
-col1, col2 = st.columns([1.2, 4.8])
+col1, col2 = st.columns([1, 3])
 
 with col1:
-    st.header("📊 输入参数")
-    current_dau = st.number_input("当前活跃用户数 (DAU)", min_value=0, value=10000, key="current_dau")
-    forecast_days = st.number_input("预测天数", min_value=1, max_value=365, value=30, key="forecast_days")
-    churn_rate = st.number_input("老用户每日流失率 (%)", min_value=0.0, max_value=100.0, value=1.0, key="churn_rate") / 100.0
+    st.header("📊 参数输入")
+    with st.expander("基础配置", expanded=True):
+        current_dau = st.number_input("当前 DAU", value=10000, step=100)
+        forecast_days = st.slider("预测天数", 7, 365, 30)
+        churn_rate = st.number_input("老用户每日流失率 (%)", value=1.0, step=0.1) / 100.0
 
-    st.subheader("📈 每日新增用户 (DNU)")
-    use_fixed_dnu = st.checkbox("使用固定每日新增用户", value=True, key="use_fixed_dnu")
-    if use_fixed_dnu:
-        daily_dnu = st.number_input("每日新增用户数", min_value=0, value=500, key="daily_dnu")
-        dnu_list = [daily_dnu] * forecast_days
-    else:
-        dnu_list = []
-        for i in range(forecast_days):
-            dnu = st.number_input(f"第 {i+1} 天新增用户数", min_value=0, value=500, key=f"dnu_{i}")
-            dnu_list.append(dnu)
+    with st.expander("DNU (新增) 配置", expanded=True):
+        daily_dnu = st.number_input("每日平均新增", value=500, step=50)
+        dnu_list = [daily_dnu] * (forecast_days + 1)
 
-    st.subheader("🔄 留存率输入（可间断）")
-    # 初始化 session_state
-    if 'retention_points' not in st.session_state:
-        st.session_state.retention_points = []
-    if 'temp_retention_points' not in st.session_state:
-        st.session_state.temp_retention_points = []
+    st.header("🔄 留存点输入")
+    if 'rows' not in st.session_state:
+        st.session_state.rows = [{'day': 1, 'rate': 50.0}, {'day': 7, 'rate': 30.0}]
 
-    def add_retention_point():
-        st.session_state.temp_retention_points.append({'day': 1, 'rate': 50.0 / 100.0})
+    def add_row():
+        st.session_state.rows.append({'day': 30, 'rate': 15.0})
 
-    st.button("添加留存点", on_click=add_retention_point, key="add_retention")
+    for i, row in enumerate(st.session_state.rows):
+        c1, c2 = st.columns([1, 1])
+        st.session_state.rows[i]['day'] = c1.number_input(f"天数", value=row['day'], key=f"d_{i}")
+        st.session_state.rows[i]['rate'] = c2.number_input(f"留存%", value=row['rate'], key=f"r_{i}")
 
-    # 临时存储输入，用container控制高度
-    with st.container():
-        for idx in range(len(st.session_state.temp_retention_points)):
-            point = st.session_state.temp_retention_points[idx]
-            col_a, col_b, col_c = st.columns([1, 1, 0.5])
-            with col_a:
-                new_day = st.number_input(f"天数", min_value=1, value=point.get('day', 1), key=f"day_{idx}_{st.session_state.get('input_version', 0)}")
-            with col_b:
-                new_rate_percent = st.number_input(f"留存率 (%)", min_value=0.0, max_value=100.0, value=point.get('rate', 0.5) * 100.0, key=f"rate_percent_{idx}_{st.session_state.get('input_version', 0)}")
-                new_rate = new_rate_percent / 100.0
-            with col_c:
-                if st.button("移除", key=f"remove_{idx}_{st.session_state.get('input_version', 0)}"):
-                    st.session_state.temp_retention_points.pop(idx)
-                    st.rerun()
+    st.button("➕ 添加留存观测点", on_click=add_row)
 
-            st.session_state.temp_retention_points[idx]['day'] = new_day
-            st.session_state.temp_retention_points[idx]['rate'] = new_rate
-
-    # 保存按钮
-    if st.button("保存留存点", key="save_retention"):
-        st.session_state.retention_points = [dict(p) for p in st.session_state.temp_retention_points]
-        st.session_state.input_version = st.session_state.get('input_version', 0) + 1
-        st.success("留存点保存成功！")
-        st.rerun()
-
-    # 显示调试信息
-    with st.expander("查看留存点数据"):
-        st.write("已保存的留存点：")
-        st.write(st.session_state.retention_points)
-        st.write("当前输入（未保存）：")
-        st.write(st.session_state.temp_retention_points)
-
-    # 准备数据
-    retention_days = [point['day'] for point in st.session_state.retention_points]
-    retention_rates = [point['rate'] for point in st.session_state.retention_points]
-    if retention_days:
-        sorted_indices = np.argsort(retention_days)
-        retention_days = [retention_days[i] for i in sorted_indices]
-        retention_rates = [retention_rates[i] for i in sorted_indices]
-        st.info("提示：留存点已按天数排序。")
-
-# 右边大输出区
 with col2:
-    st.markdown('<div class="output-area">', unsafe_allow_html=True)
-    st.header("📈 预测结果与分析")
-    if st.button("🔍 预测", key="forecast_button"):
-        if not retention_days or not retention_rates:
-            st.error("请至少保存一个留存点以进行预测。")
-        else:
-            a, b, r_squared = fit_retention_curve(retention_days, retention_rates)
-            
-            def retention_func(day):
-                return get_retention_rate(day, a, b)
-            
-            dau_forecast = forecast_dau(current_dau, dnu_list, retention_func, churn_rate, forecast_days)
-            
-            df_forecast = pd.DataFrame({
-                "天数": range(forecast_days + 1),
-                "活跃用户数 (DAU)": dau_forecast
+    st.header("📈 预测分析报告")
+    
+    # 提取数据并拟合
+    days_data = [r['day'] for r in st.session_state.rows]
+    rates_data = [r['rate'] / 100.0 for r in st.session_state.rows]
+    
+    a, b, r_sq = fit_retention_curve(days_data, rates_data)
+    
+    if a is not None:
+        # 计算预测
+        forecast_results = forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days)
+        
+        # 布局展示
+        m1, m2, m3 = st.columns(3)
+        m1.metric("拟合系数 a (D1趋势)", f"{a:.4f}")
+        m2.metric("衰减系数 b", f"{b:.4f}")
+        m3.metric("拟合优度 R²", f"{r_sq:.4f}")
+
+        # 图表展示
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(range(len(forecast_results)), forecast_results, marker='o', linestyle='-', color='#3498db', label="预测DAU")
+        ax.fill_between(range(len(forecast_results)), forecast_results, color='#3498db', alpha=0.1)
+        ax.set_title(f"未来 {forecast_days} 天 DAU 预测走势")
+        ax.set_xlabel("预测天数")
+        ax.set_ylabel("DAU")
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+        st.pyplot(fig)
+
+        # LT 计算
+        st.subheader("🧮 长期价值计算 (LTV/LT)")
+        lt_n = st.number_input("计算前 N 天的留存累加值 (LT)", value=30)
+        lt_val = sum(get_retention_rate(d, a, b) for d in range(lt_n + 1))
+        st.success(f"前 {lt_n} 天的累计留存价值 (LT) 为: {lt_val:.2f} 天")
+        
+        # 数据详情
+        with st.expander("查看预测数据详情"):
+            df = pd.DataFrame({
+                "预测天数": range(len(forecast_results)),
+                "预计DAU": [int(x) for x in forecast_results]
             })
-            
-            st.dataframe(df_forecast.style.format({"活跃用户数 (DAU)": "{:.0f}"}).set_properties(**{'border': '1px solid #ddd', 'padding': '10px', 'width': '100%'}))
-            st.subheader("DAU预测趋势")
-            fig, ax = plt.subplots(figsize=(20, 8))
-            ax.plot(df_forecast["天数"], df_forecast["活跃用户数 (DAU)"], marker='o', color='#3498db', linewidth=2)
-            ax.set_xlabel("天数")
-            ax.set_ylabel("活跃用户数 (DAU)")
-            ax.set_title("未来DAU预测", pad=20)
-            ax.grid(True, linestyle='--', alpha=0.7)
-            st.markdown('<div class="chart-title">DAU趋势图</div>', unsafe_allow_html=True)
-            st.pyplot(fig)
-
-    if 'a' in locals() and 'b' in locals() and a is not None and b is not None:
-        st.write(f"拟合留存公式: retention = {a:.4f} * day ^ (-{b:.4f})")
-        st.write(f"R² 值: {r_squared:.4f}")
+            st.dataframe(df.T)
     else:
-        st.write("至少需要两个留存点进行拟合。")
+        st.warning("请至少输入两个有效的留存点以开始科学拟合。")
 
-    st.subheader("🧮 计算LT值（留存累加，包括D0=1）")
-    lt_n = st.number_input("输入n天", min_value=1, value=30, key="lt_n")
-    if st.button("计算LT", key="calc_lt"):
-        a, b, _ = fit_retention_curve(retention_days, retention_rates)
-        if a is not None and b is not None:
-            lt_value = sum(get_retention_rate(day, a, b) for day in range(0, lt_n + 1))
-            st.success(f"n={lt_n} 天的留存累加值 (包括D0=1): {lt_value:.4f}")
-        else:
-            st.warning("请先保存至少两个留存点并预测以拟合公式。")
-    st.markdown('</div>', unsafe_allow_html=True)
-
+# 依赖声明文件生成
 with open("requirements.txt", "w") as f:
-    f.write("streamlit\npandas\nnumpy\nmatplotlib")
+    f.write("streamlit\npandas\nnumpy\nmatplotlib\nscipy")
