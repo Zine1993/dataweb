@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- 核心算法部分 ---
 
@@ -19,7 +20,7 @@ def fit_retention_curve(days, rates):
     rates_arr = np.array(rates)
     
     try:
-        # 使用 scipy 进行非线性拟合
+        # 使用 scipy 进行非线性拟合，限制参数范围
         popt, _ = curve_fit(power_law, days_arr, rates_arr, p0=[0.5, 0.5], bounds=(0, [1.0, np.inf]))
         a, b = popt
         
@@ -55,10 +56,10 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
 
 # --- UI 界面部分 ---
 
-st.set_page_config(page_title="App活跃预测-标准版", layout="wide")
-st.title("📱 App用户活跃预测模型（科学版）")
+st.set_page_config(page_title="App活跃预测工具", layout="wide")
+st.title("📱 App用户活跃及 LT 价值预测模型")
 
-# 初始化 Session State
+# 初始化计算状态
 if 'calculated' not in st.session_state:
     st.session_state.calculated = False
 
@@ -87,33 +88,33 @@ with col1:
     st.button("➕ 添加留存点", on_click=add_row)
     
     st.markdown("---")
-    # 点击按钮执行计算
-    run_calc = st.button("🚀 开始执行预测", type="primary", use_container_width=True)
-    if run_calc:
+    # 核心控制：只有点击此按钮，session_state.calculated 才会变为 True
+    if st.button("🚀 开始执行预测", type="primary", use_container_width=True):
         st.session_state.calculated = True
 
 with col2:
     st.header("📈 预测分析报告")
     
     if st.session_state.calculated:
-        # 准备数据
+        # 提取输入数据
         days_data = [r['day'] for r in st.session_state.rows]
         rates_data = [r['rate'] / 100.0 for r in st.session_state.rows]
         
-        # 执行拟合
+        # 1. 执行拟合计算
         a, b, r_sq = fit_retention_curve(days_data, rates_data)
         
         if a is not None:
+            # 2. 执行 DAU 预测
             dnu_list = [daily_dnu] * (forecast_days + 1)
             forecast_results = forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days)
             
-            # 指标展示
+            # 3. 核心指标卡片
             m1, m2, m3 = st.columns(3)
             m1.metric("拟合系数 a", f"{a:.4f}")
             m2.metric("衰减系数 b", f"{b:.4f}")
             m3.metric("拟合优度 R²", f"{r_sq:.4f}")
 
-            # Plotly 绘图
+            # 4. 绘图 (Plotly 整数格式化)
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=list(range(len(forecast_results))), 
@@ -124,9 +125,8 @@ with col2:
                 fill='tozeroy',
                 hovertemplate="预测天数: %{x}<br>活跃用户数: %{y:,.0f}<extra></extra>"
             ))
-            
             fig.update_layout(
-                title=f"未来 {forecast_days} 天 DAU 预测趋势",
+                title=f"未来 {forecast_days} 天 DAU 预测走势",
                 xaxis_title="预测天数",
                 yaxis_title="活跃用户数 (DAU)",
                 hovermode="x unified",
@@ -134,20 +134,17 @@ with col2:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            st.subheader("🧮 长期价值计算")
-            lt_n = st.number_input("计算前 N 天的累计留存 (LT)", value=30)
+            # 5. 长期价值计算 (也被包含在 calculated 判断内)
+            st.subheader("🧮 长期价值计算 (LT)")
+            lt_n = st.number_input("计算前 N 天的累计留存价值 (LT)", value=30, key="lt_calc_input")
             lt_val = sum(get_retention_rate(d, a, b) for d in range(lt_n + 1))
-            st.success(f"前 {lt_n} 天的累计留存价值 (LT) 为: {lt_val:.2f} 天")
+            st.success(f"根据当前拟合模型，前 {lt_n} 天的累计留存价值 (LT) 为: {lt_val:.2f} 天")
+            
         else:
-            st.warning("拟合失败，请检查留存观测点输入。")
+            st.error("拟合失败，请检查观测点输入是否合理。")
     else:
-        # 去掉破碎图片，改用更稳健的文字提示
-        st.info("👈 请在左侧配置参数后，点击『开始执行预测』按钮查看分析结果。")
-        # 增加一个简单的背景容器效果，让页面不单调
-        st.write("")
-        st.write("")
-        container = st.container()
-        container.write("等待数据输入中...")
+        # 未点击按钮时的引导状态
+        st.info("👈 请在左侧配置好当前 DAU、DNU 及历史留存观测点后，点击『开始执行预测』。")
 
 # 依赖文件
 with open("requirements.txt", "w") as f:
