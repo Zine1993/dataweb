@@ -19,6 +19,7 @@ def fit_retention_curve(days, rates):
     rates_arr = np.array(rates)
     
     try:
+        # 使用 scipy 进行非线性拟合
         popt, _ = curve_fit(power_law, days_arr, rates_arr, p0=[0.5, 0.5], bounds=(0, [1.0, np.inf]))
         a, b = popt
         
@@ -57,7 +58,7 @@ def forecast_dau(current_dau, dnu_list, a, b, churn_rate, forecast_days):
 st.set_page_config(page_title="App活跃预测-标准版", layout="wide")
 st.title("📱 App用户活跃预测模型（科学版）")
 
-# 初始化 Session State 用于存储计算状态
+# 初始化 Session State
 if 'calculated' not in st.session_state:
     st.session_state.calculated = False
 
@@ -86,8 +87,8 @@ with col1:
     st.button("➕ 添加留存点", on_click=add_row)
     
     st.markdown("---")
-    # 核心变动：新增计算按钮
-    run_calc = st.button("🚀 开始执行预测", type="primary")
+    # 点击按钮执行计算
+    run_calc = st.button("🚀 开始执行预测", type="primary", use_container_width=True)
     if run_calc:
         st.session_state.calculated = True
 
@@ -140,9 +141,13 @@ with col2:
         else:
             st.warning("拟合失败，请检查留存观测点输入。")
     else:
-        # 未点击按钮时的提示界面
+        # 去掉破碎图片，改用更稳健的文字提示
         st.info("👈 请在左侧配置参数后，点击『开始执行预测』按钮查看分析结果。")
-        st.image("https://img.icons8.com/illustrations/official/xlarge/data-analysis.png", width=400)
+        # 增加一个简单的背景容器效果，让页面不单调
+        st.write("")
+        st.write("")
+        container = st.container()
+        container.write("等待数据输入中...")
 
 # 依赖文件
 with open("requirements.txt", "w") as f:
